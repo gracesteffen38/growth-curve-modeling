@@ -1,0 +1,449 @@
+---
+title: "cortisol practice polynomial and linear fits"
+author: "gs"
+date: "2023-09-19"
+output: pdf_document
+---
+
+
+```{r}
+library(psych)
+library(ggplot2)
+library(lme4)
+#library(nlme)
+library(readxl)
+library(excel.link)
+library(tidyverse)
+
+cortisol_raw<-xl.read.file("C:/SalivaResults_10.31.2022_GS_fixednom.xlsx",
+                           password="FIP2022")
+comp_cort_raw<-xl.read.file("C:/SalivaResults_10.31.2022_GS_comp.xlsx",
+                           password="FIP2022")
+
+#Separating into dataframes for parent and child together and individually
+comp_cort <- comp_cort_raw%>%
+  select(cort_1, cort_2, cort_3, cort_4, cort_5, rID, part, C_P)
+
+c_cort_wide <- na.omit(cortisol_raw) %>%
+  select(rID, cortC_1, cortC_2, cortC_3, cortC_4, cortC_5, ERC_tot, ERC_hilo, ERQ, ERQ_s, ERQ_r)
+p_cort_wide <- na.omit(cortisol_raw) %>%
+  select(rID, cortP_1, cortP_2, cortP_3, cortP_4, cortP_5, ERC_tot, ERC_hilo, ERQ, ERQ_s, ERQ_r)
+
+```
+
+transforming to long format and scaling for time
+```{r}
+comp_cort_long <- reshape(data=na.omit(comp_cort), 
+                         timevar=c("time"), 
+                         idvar="rID",
+                         varying=c("cort_1", "cort_2", "cort_3", "cort_4", "cort_5"),
+                         direction="long", sep="_")
+
+comp_cort_long$timescaled <- (comp_cort_long$time - 1)/5
+```
+
+```{r}
+p_cort_long <- reshape(data=p_cort_wide, 
+                         timevar=c("time"), 
+                         idvar="rID",
+                         varying=c("cortP_1", "cortP_2", "cortP_3", "cortP_4", "cortP_5"),
+                         direction="long", sep="_")
+
+p_cort_long$timescaled <- (p_cort_long$time - 1)/5
+
+```
+
+```{r}
+c_cort_long <- reshape(data=c_cort_wide, 
+                         timevar=c("time"), 
+                         idvar="id",
+                         varying=c("cortC_1", "cortC_2", "cortC_3", "cortC_4", "cortC_5"),
+                         direction="long", sep="_")
+
+c_cort_long$timescaled <- (c_cort_long$time - 1)/5
+```
+
+
+Plotting to see spread of data before fitting models
+```{r eval = FALSE}
+ggplot(data=na.omit(c_cort_long), aes(x=factor(time), y=cortC)) + 
+  geom_boxplot(notch = FALSE) +
+  stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+  labs(x = "Time", y = "Child Cortisol")
+```
+```{r}
+ggplot(data=na.omit(p_cort_long), aes(x=factor(time), y=cortP)) + 
+  geom_boxplot(notch = FALSE) +
+  stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+  labs(x = "Time", y = "Parent Cortisol")
+```
+
+
+all data with color for parent or child
+```{r eval = FALSE}
+ggplot(data=na.omit(comp_cort_long), aes(x=factor(time), y=cort, color=C_P)) + 
+   geom_boxplot(notch = FALSE) +
+   stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+   labs(x = "Time", y = "Cortisol")
+
+```
+
+child data with ERC_hilo
+```{r eval = FALSE}
+ggplot(data=na.omit(c_cort_long), aes(x=factor(time), y=cortC, color=ERC_hilo)) +
+   geom_boxplot(notch = FALSE) +
+   stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+   labs(x = "Time", y = "Cortisol")
+```
+
+parent cortisol, child ERC
+```{r eval = FALSE}
+ggplot(data=na.omit(p_cort_long), aes(x=factor(time), y=cortP, color=ERC_hilo)) +
+   geom_boxplot(notch = FALSE) +
+   stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+   labs(x = "Time", y = "Cortisol")
+```
+
+```{r eval =FALSE}
+ggplot(data=na.omit(p_cort_long), aes(x=factor(time), y=cortP, color=ERQ_s)) +
+   geom_boxplot(notch = FALSE) +
+   stat_summary(fun="mean", geom="point", shape=23, size=3, fill="white") +
+   labs(x = "Time", y = "Cortisol")
+```
+
+
+linear best fit for parent cortisol with group effect ERC
+```{r}
+p_cort_m_base <-lmer(cortP~1+time+(1+time|rID),data=p_cort_long, REML=FALSE)
+p_cort_m0 <- lmer(cortP~1+time+ERC_hilo+(1+time|rID),data=p_cort_long, REML=FALSE)
+p_cort_m1 <- lmer(cortP~time*ERC_hilo+(time|rID),data=p_cort_long, REML=FALSE)
+
+anova(p_cort_m_base, p_cort_m1, p_cort_m0)
+```
+
+linear for parent cortisol with group effects for ERQ_s
+```{r}
+p_cort_ERQ_s_m_base <-lmer(cortP~1+time+(1+time|rID),data=p_cort_long, REML=FALSE)
+p_cort_ERQ_s_m0 <- lmer(cortP~1+time+ERQ_s+(1+time|rID),data=p_cort_long, REML=FALSE)
+p_cort_ERQ_s_m1 <- lmer(cortP~time*ERQ_s+(time|rID),data=p_cort_long, REML=FALSE)
+
+anova(p_cort_ERQ_s_m_base, p_cort_ERQ_s_m1, p_cort_ERQ_s_m0)
+```
+
+plotting the models from above
+```{r}
+ggplot(p_cort_long, aes(time, cortP, color=ERQ_s))+stat_summary(fun.data=mean_se, geom="pointrange")+ stat_summary(aes(y=fitted(p_cort_ERQ_s_m0),linetype=ERQ_s), fun=mean, geom="line")+
+  labs(x = "Time", y = "Cortisol")
+```
+
+Growth curve modeling (via Mirman, D. (2014). Growth Curve Analysis and Visualization Using R. Chapman and Hall / CRC.)
+```{r}
+p_t = poly(unique(p_cort_long$time),2)
+
+p_cort_long[,paste("p_ot", 1:2, sep="")] <- p_t[p_cort_long$time,1:2]
+
+cort_p_ot_m <-lmer(cortP~(p_ot1+p_ot2)+(p_ot1+p_ot2|rID),data=p_cort_long, REML=FALSE)
+#no effect for ERQ_s
+
+cort_p_ot_m0 <-lmer(cortP~(p_ot1+p_ot2)+ERQ_s+(p_ot1+p_ot2|rID),data=p_cort_long, REML=FALSE)
+#fixed effect of ERQ_s on intercept
+
+cort_p_ot_m1 <-lmer(cortP~(p_ot1+p_ot2)+ERQ_s+p_ot1:ERQ_s+(p_ot1+p_ot2|rID),data=p_cort_long, REML=FALSE)
+#effect of ERQ_s on linear term only
+
+cort_p_ot_m2 <-lmer(cortP~(p_ot1+p_ot2)*ERQ_s+(p_ot1+p_ot2|rID),data=p_cort_long, REML=FALSE)
+#effect of ERQ_s on all time terms
+anova(cort_p_ot_m, cort_p_ot_m0, cort_p_ot_m1, cort_p_ot_m2)
+```
+
+plotting fitted models...
+```{r}
+ggplot(na.omit(p_cort_long), aes(time, cortP, color=ERQ_s))+ 
+  stat_summary(aes(y=fitted(cort_p_ot_m1),linetype=ERQ_s), fun=mean, geom="line", linewidth=.75)+
+  stat_summary(fun.data=mean_se, geom="pointrange", linewidth=.75)+
+  theme_bw(base_size=10)+
+  #coord_cartesian(ylim=c(0.5,1.0))+
+  #scale_x_continuous(breaks=1.00)+
+  labs(x = "Time", y = "Parent Cortisol", title = "Parent Cortisol across ERQ Supression Subscale")
+```
+
+linear best fit for child with group effect ERC
+```{r}
+
+c_cort_m_base <-lmer(cortC~1+time+(1+time|rID),data=c_cort_long, REML=FALSE)
+c_cort_m0 <- lmer(cortC~1+time+ERC_hilo+(1+time|rID),data=c_cort_long, REML=FALSE)
+c_cort_m1 <- lmer(cortC~time*ERC_hilo+(time|rID),data=c_cort_long, REML=FALSE)
+
+anova(c_cort_m_base, c_cort_m1, c_cort_m0)
+```
+m1 is best but not great
+
+plot of m1 for ERC effects
+```{r eval = FALSE}
+ggplot(c_cort_long, aes(time, cortC, color=ERC_hilo))+stat_summary(fun.data=mean_se, geom="pointrange")+ stat_summary(aes(y=fitted(c_cort_m1),linetype=ERC_hilo), fun=mean, geom="line")+
+  labs(x = "Time", y = "Cortisol")
+```
+
+polynomial best fit for child with ERC
+```{r}
+c_t = poly(unique(c_cort_long$time),2)
+
+c_cort_long[,paste("c_ot", 1:2, sep="")] <- c_t[c_cort_long$time,1:2]
+
+cort_c_ot_m <-lmer(cortC~(c_ot1+c_ot2)+(c_ot1+c_ot2|rID),data=c_cort_long, REML=FALSE)
+#no effect for ERC_hilo
+
+cort_c_ot_m0 <-lmer(cortC~(c_ot1+c_ot2)+ERC_hilo+(c_ot1+c_ot2|rID),data=c_cort_long, REML=FALSE)
+#fixed effect of ERC_hilo on intercept
+
+cort_c_ot_m1 <-lmer(cortC~(c_ot1+c_ot2)+ERC_hilo+c_ot1:ERC_hilo+(c_ot1+c_ot2|rID),data=c_cort_long, REML=FALSE)
+#effect of ERC_hilo on linear term only
+
+cort_c_ot_m2 <-lmer(cortC~(c_ot1+c_ot2)*ERC_hilo+(c_ot1+c_ot2|rID),data=c_cort_long, REML=FALSE)
+#effect of ERC_hilo on all time terms
+anova(cort_c_ot_m, cort_c_ot_m0, cort_c_ot_m1, cort_c_ot_m2)
+#anova(cort_m_base, cort_m1, cort_m0, cort_ot_m, cort_ot_m0, cort_ot_m1, cort_ot_m2)
+```
+m1 still best but not great
+
+
+plotting new m1
+```{r eval = FALSE}
+ggplot(na.omit(c_cort_long), aes(time, cortC, color=ERC_hilo))+ 
+  stat_summary(aes(y=fitted(cort_c_ot_m),linetype=ERC_hilo), fun=mean, geom="line", linewidth=.75)+
+  stat_summary(fun.data=mean_se, geom="pointrange", linewidth=.75)+
+  theme_bw(base_size=10)+
+  #coord_cartesian(ylim=c(0.5,1.0))+
+  #scale_x_continuous(breaks=1.00)+
+  labs(x = "Time", y = "Cortisol")
+```
+
+
+linear best fit for all data with group effects for child and parent
+```{r}
+cort_m_base <-lmer(cort~1+time+(1+time|rID),data=comp_cort_long, REML=FALSE)
+cort_m0 <- lmer(cort~1+time+C_P+(1+time|rID),data=comp_cort_long, REML=FALSE)
+cort_m1 <- lmer(cort~time*C_P+(time|rID),data=comp_cort_long, REML=FALSE)
+
+anova(cort_m_base, cort_m1, cort_m0)
+  
+```
+m1 best 
+
+```{r}
+ggplot(comp_cort_long, aes(time, cort, color=C_P))+stat_summary(fun.data=mean_se, geom="pointrange")+ stat_summary(aes(y=fitted(cort_m1),linetype=C_P), fun=mean, geom="line")+
+  labs(x = "Time", y = "Cortisol")
+```
+
+```{r}
+t = poly(unique(comp_cort_long$time),2)
+
+comp_cort_long[,paste("ot", 1:2, sep="")] <- t[comp_cort_long$time,1:2]
+
+cort_ot_m <-lmer(cort~(ot1+ot2)+(ot1+ot2|rID),data=comp_cort_long, REML=FALSE)
+#no effect for C_P
+
+cort_ot_m0 <-lmer(cort~(ot1+ot2)+C_P+(ot1+ot2|rID),data=comp_cort_long, REML=FALSE)
+#fixed effect of C_P on intercept
+
+cort_ot_m1 <-lmer(cort~(ot1+ot2)+C_P+ot1:C_P+(ot1+ot2|rID),data=comp_cort_long, REML=FALSE)
+#effect of C_P on linear term only
+
+cort_ot_m2 <-lmer(cort~(ot1+ot2)*C_P+(ot1+ot2|rID),data=comp_cort_long, REML=FALSE)
+#effect of C_P on all time terms
+anova(cort_ot_m, cort_ot_m0, cort_ot_m1, cort_ot_m2)
+#anova(cort_m_base, cort_m1, cort_m0, cort_ot_m, cort_ot_m0, cort_ot_m1, cort_ot_m2)
+
+
+
+```
+m1 best again... linear m1 may be better than polynomial m1?
+
+now let's plot those polynomial values 
+```{r}
+ggplot(na.omit(comp_cort_long), aes(time, cort, color=C_P))+ 
+  stat_summary(aes(y=fitted(cort_ot_m),linetype=C_P), fun=mean, geom="line", linewidth=.75)+
+  stat_summary(fun.data=mean_se, geom="pointrange", linewidth=.75)+
+  theme_bw(base_size=10)+
+  #coord_cartesian(ylim=c(0.5,1.0))+
+  #scale_x_continuous(breaks=1.00)+
+  labs(x = "Time", y = "Cortisol")
+```
+
+parameter estimates
+```{r}
+#fixed effect parameter estimates and their p-values:
+cort_coefs<-data.frame(coef(summary(cort_ot_m1)))
+cort_coefs%>%
+  mutate(p=2*(1-pnorm(abs(cort_coefs$t.value))))
+
+#show parameter specific p-values:
+library(lmerTest)
+cort_ot_m1t<-lmer(cort~(ot1+ot2)+C_P+ot1:C_P+(ot1+ot2|rID),data=comp_cort_long, REML=FALSE)
+coef(summary(cort_ot_m1t))
+```
+
+
+
+
+
+
+```{r}
+round(cor(p_cort_wide[,c("cortP_1", "cortP_2", "cortP_3", "cortP_4", "cortP_5")], use="complete.obs",method="spearman"),2)
+```
+
+```{r}
+round(cor(c_cort_wide[,c("cortC_1", "cortC_2", "cortC_3", "cortC_4", "cortC_5")], use="complete.obs",method="spearman"),2)
+```
+
+```{r eval = FALSE}
+round(cor(cortisol_raw[,c("cortC_1", "cortC_2", "cortC_3", "cortC_4", "cortC_5", "cortP_1", "cortP_2", "cortP_3", "cortP_4", "cortP_5")], use="complete.obs",method="spearman"),2)
+```
+
+```{r}
+ggplot(data = c_cort_long, aes(x = time, y = cortC, group = id)) +
+  geom_point(color="black") + 
+  geom_line(color="black") +
+  xlab("Time") + 
+  ylab("Cortisol") + ylim(0,.5) +
+  scale_x_continuous(breaks=seq(0,8,by=1)) 
+```
+
+```{r eval = FALSE}
+library(nlme)
+c_cort_linear <- nlme(cortC ~ g0 + g1*timescaled,
+                    fixed = g0 + g1 ~ 1,
+                    random = g0 + g1 ~ 1,
+                    group = ~id,
+                    start = c(g0=.05, g1=.3),
+                    data = c_cort_long,
+                    na.action = "na.exclude")
+
+summary(c_cort_linear)  
+```
+
+
+```{r eval = FALSE}
+p_cort_linear <- nlme(cortP ~ g0 + g1*timescaled,
+                    fixed = g0 + g1 ~ 1,
+                    random = g0 + g1 ~ 1,
+                    group = ~rID,
+                    start = c(g0=.05, g1=.3),
+                    data = p_cort_long,
+                    na.action = "na.exclude")
+
+summary(c_cort_linear)  
+```
+
+```{r eval = FALSE}
+c_cort_long$pred_linear <- predict(c_cort_linear)
+
+#obtaining predicted scores for prototype
+c_cort_long$proto_linear <- predict(c_cort_linear, level=0)
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = c_cort_long, aes(x = time, y = pred_linear, group = rID)) +
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_linear), color="red",linewidth=2) + 
+  xlab("Time") + 
+  ylab("Cortisol") + ylim(0,0.5) +
+  scale_x_continuous(breaks=seq(1,5,by=1)) 
+```
+```{r eval = FALSE}
+p_cort_long$pred_linear <- predict(p_cort_linear)
+
+#obtaining predicted scores for prototype
+p_cort_long$proto_linear <- predict(p_cort_linear, level=0)
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = p_cort_long, aes(x = time, y = pred_linear, group = rID)) +
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_linear), color="red",linewidth=2) + 
+  xlab("Time") + 
+  ylab("Cortisol") + ylim(0,0.5) +
+  scale_x_continuous(breaks=seq(1,5,by=1))
+```
+summary of linear mixed effects for both parents and children
+```{r eval = FALSE}
+comp_cort_long$timesq <- comp_cort_long$timescaled^2
+comp_cort_quad <- lmer(cort ~ 1 + timescaled + timesq + (1 + timescaled + timesq | rID),
+                    data = comp_cort_long,
+                    )
+summary(comp_cort_quad)
+
+
+# p_cort_long$timesq <- p_cort_long$timescaled^2
+# p_cort_quad <- lmer(cortP ~ 1 + timescaled + timesq + (1 + timescaled + timesq | rID),
+#                     data = p_cort_long,
+#                     )
+# summary(p_cort_quad)
+```
+
+
+```{r eval = FALSE}
+library(nlme)
+comp_cort_quad <- nlme(cort ~ g0 + g1*timescaled + g2*timesq,
+                    fixed = g0 + g1 + g2 ~ 1,
+                    random = g0 + g1 + g2 ~ 1,
+                    group = ~rID,
+                    start = c(g0=.5, g1=41.1, g2=-30.2),
+                    data = comp_cort_long,
+                    na.action = "na.exclude")
+
+summary(comp_cort_quad) 
+```
+
+```{r eval = FALSE}
+comp_cort_long$pred_quad <- predict(comp_cort_quad)
+
+#obtaining predicted scores for prototype
+comp_cort_long$proto_quad <- predict(comp_cort_quad, level=0)
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+# ggplot(data = comp_cort_long, aes(x = time, y = pred_quad, group = rID)) +
+#   #geom_point(color="black") + 
+#   geom_line(color="black") +
+#   geom_line(aes(x = time, y = proto_quad), color="red",size=1.5) + 
+#   xlab("Time") + 
+#   ylab("Cortisol") + ylim(0,.6) +
+#   scale_x_continuous(breaks=seq(1,5,by=1)) 
+
+ggplot(na.omit(comp_cort_long), aes(time, cort, color=C_P))+ 
+  stat_summary(aes(y=pred_quad,linetype=C_P), fun=mean, geom="line", linewidth=.75)+
+  stat_summary(fun.data=mean_se, geom="pointrange", linewidth=.75)+
+  theme_bw(base_size=10)+
+  #coord_cartesian(ylim=c(0.5,1.0))+
+  #scale_x_continuous(breaks=1.00)+
+  labs(x = "Time", y = "Cortisol")
+```
+
+```{r eval = FALSE}
+p_cort_quad <- nlme(cortP ~ g0 + g1*timescaled + g2*timesq,
+                    fixed = g0 + g1 + g2 ~ 1,
+                    random = g0 + g1 + g2 ~ 1,
+                    group = ~rID,
+                    start = c(g0=.5, g1=41.1, g2=-30.2),
+                    data = p_cort_long,
+                    na.action = "na.exclude")
+
+#summary(p_cort_quad) 
+p_cort_long$pred_quad <- predict(p_cort_quad)
+
+#obtaining predicted scores for prototype
+p_cort_long$proto_quad <- predict(p_cort_quad, level=0)
+
+#plotting predicted trajectories
+#intraindividual change trajetories
+ggplot(data = p_cort_long, aes(x = time, y = pred_quad, group = rID)) +
+  #geom_point(color="black") + 
+  geom_line(color="black") +
+  geom_line(aes(x = time, y = proto_quad), color="red",size=1) + 
+  xlab("Time") + 
+  ylab("Parent Cortisol") + ylim(0,.5) +
+  scale_x_continuous(breaks=seq(1,5,by=1)) 
+```
+
+
