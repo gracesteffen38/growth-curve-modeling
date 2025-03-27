@@ -1,0 +1,180 @@
+---
+title: "mlm_project"
+author: "Grace Steffen"
+date: "2024-09-12"
+output: pdf_document
+---
+```{r loadlib, echo=TRUE}
+library(reghelper)
+library(lme4) 
+library(Matrix)
+library(ggplot2) 
+library(psychometric) 
+library(mice)
+library(rockchalk)
+library(modelsummary)
+library(dplyr)
+```
+
+```{r}
+setwd('C:/')
+
+temp_child_RSA <- read.csv("temp_child_RSA.csv")
+
+child_affect <- read.csv("child_affect.csv")
+
+child_RSA_aff <- merge(temp_child_RSA, child_affect, by= c("ID", "dc_time"))
+child_RSA_aff= child_RSA_aff[-3]
+child_RSA_aff= child_RSA_aff[-3]
+child_all = merge(child_RSA_aff, child_fnirs, by= c("ID", "dc_time"))
+
+child_RSA_aff_norm <- merge(temp_child_RSA_norm, child_affect, by= c("ID", "dc_time"))
+child_all_norm = merge(child_RSA_aff_norm, child_fnirs_norm, by= c("ID", "dc_time"))
+ 
+FIP_Surveys <- read.csv("FIP_SPSS_FinalDataset_7.30.2024.csv")
+FIP_Surveys_sexch = FIP_Surveys %>%
+    dplyr::select(ID, SEXch)
+
+child_RSA_aff <- merge(child_RSA_aff, FIP_Surveys_sexch, by ="ID")
+```
+get proportion of child affect to use as level 2 predictor (as affect is coded binarily)
+```{r}
+child_RSA_aff_prop <- child_RSA_aff%>%
+  group_by(ID)%>%
+  summarise(Child_NA_prop = sum(Child_NA)/(max(dc_time)- min(dc_time)), Child_PA_prop = sum(Child_PA)/(max(dc_time)- min(dc_time)))
+
+child_RSA_aff <- merge(child_RSA_aff, child_RSA_aff_prop, by ="ID")
+```
+
+```{r}
+#adjusting time so it starts at 0
+child_RSA_aff$time = child_RSA_aff$dc_time -min(child_RSA_aff$dc_time)
+
+#creating group-mean centered affect proportions
+child_RSA_aff$Child_NA_prop_gmc = child_RSA_aff$Child_NA_prop - mean(child_RSA_aff$Child_NA_prop)
+child_RSA_aff$Child_PA_prop_gmc = child_RSA_aff$Child_PA_prop - mean(child_RSA_aff$Child_PA_prop)
+
+#dummy coding sex so it can be used as covariate in analyses
+child_RSA_aff$sexbin = case_when(child_RSA_aff$SEXch == "Female"~1, child_RSA_aff$SEXch == "Male"~0)
+```
+
+Getting ICCs before proceeding
+```{r}
+mod <- lmer(value ~ 1 + (1| ID), REML = F,
+              data = child_RSA_aff)
+ICC(mod) #0.68 68% is between person
+
+mod <- lmer(Child_PA ~ 1 + (1| ID), REML = F,
+              data = child_RSA_aff)
+ICC(mod) #0.13
+#icc PA = 0.085
+```
+
+first: concurrent model, nested within individuals, RSA only, probing
+```{r}
+child_RSA_aff$time_quad = child_RSA_aff$time*child_RSA_aff$time
+child_RSA_aff$corrected_rsa = child_RSA_aff$value - lag(child_RSA_aff$value, 1)
+
+mod <- lmer(value ~ time + (1| ID), REML = F,
+              data = child_RSA_aff)
+mod1 <- lmer(value ~ time +time_quad+ (1| ID), REML = F,
+              data = child_RSA_aff)
+summary(mod)
+summary(mod)
+
+anova(mod, mod1)# quadratic model is better
+```
+
+```{r}
+child_RSA_aff$time_cub = child_RSA_aff$time_quad*child_RSA_aff$time
+child_RSA_aff$time_quart = child_RSA_aff$time_quad*child_RSA_aff$time_quad
+
+
+mod1 <- lmer(value ~ time +time_quad+(1| ID), REML = F,
+              data = child_RSA_aff)
+
+mod2 <- lmer(value ~ time +time_quad+ time_cub+(1| ID), REML = F,
+              data = child_RSA_aff)
+mod3 <- lmer(value ~ time +time_quad+ time_cub+time_quart+(1| ID), REML = F,
+              data = child_RSA_aff)
+
+anova(mod1, mod2) 
+anova(mod1, mod3) #quadratic still best
+```
+
+adding group mean-centered positive and negative affect proportions; probing which interactions are significant 
+```{r}
+mod2a <- lmer(value ~ time +time_quad+Child_NA_prop_gmc+ (1| ID), REML = F,
+              data = child_RSA_aff)
+
+mod2b <- lmer(value ~ time + time*Child_NA_prop_gmc +Child_NA_prop_gmc+time_quad +(1| ID), REML = F, data = child_RSA_aff)
+
+mod2c <- lmer(value ~ time + time*Child_NA_prop_gmc +time_quad+time_quad*Child_NA_prop_gmc+Child_NA_prop_gmc+ (1| ID), REML = F,
+              data = child_RSA_aff)
+
+anova(mod2a, mod2b) #mod 2b is better
+
+anova(mod2b, mod2c) #mod 2b is better
+```
+
+```{r}
+#repeating for PA
+mod3a <- lmer(value ~ time +time_quad+Child_PA_prop_gmc+ (1| ID), REML = F,
+              data = child_RSA_aff)
+
+mod3b <- lmer(value ~ time + time*Child_PA_prop_gmc +Child_PA_prop_gmc+time_quad +(1| ID), REML = F, data = child_RSA_aff)
+
+mod3c <- lmer(value ~ time + time*Child_PA_prop_gmc +time_quad+time_quad*Child_PA_prop_gmc+Child_PA_prop_gmc+ (1| ID), REML = F,
+              data = child_RSA_aff)
+
+anova(mod3a, mod3b) #mod 3b is better
+
+anova(mod3b, mod3c) #mod 2b is better
+```
+
+```{r}
+#plotting the interactions for 2b and 3b (NA and PA)
+titlemod = "Moderator: Prop. Child Negative Affect"
+m.2b.plot <- plotCurves(mod2b, modx = "Child_NA_prop_gmc", plotx = "time", n=3, plotPoints=F, modxVals="std.dev", ylim = c(5.5,7), legendTitle = titlemod)
+graph_model(mod2b, y=value, x=time, lines=Child_NA_prop_gmc)
+
+titlemod = "Moderator: Prop. Child Positive Affect"
+m.2c.plot <- plotCurves(mod3b, modx = "Child_PA_prop_gmc", plotx = "time", n=3, plotPoints=F, modxVals="std.dev", ylim = c(5.75,6.5), legendTitle = titlemod)
+graph_model(mod3b, y=value, x=time, lines=Child_PA_prop_gmc)
+```
+
+probing random effects for time
+```{r}
+mod2b <- lmer(value ~ time + time*Child_NA_prop_gmc +Child_NA_prop_gmc+time_quad +(time| ID), REML = F,
+              data = child_RSA_aff)
+
+mod2c <- lmer(value ~ time +Child_NA_prop_gmc+time_quad +(time| ID), REML = F,
+              data = child_RSA_aff)
+summary(mod2b)
+summary(mod2c)
+
+anova(mod2b, mod2c) #mod2c is best
+```
+
+```{r}
+mod3b <- lmer(value ~ time + time*Child_PA_prop_gmc +Child_PA_prop_gmc+time_quad +(time| ID), REML = F,
+              data = child_RSA_aff)
+
+mod3c <- lmer(value ~ time +Child_PA_prop_gmc+time_quad +(time| ID), REML = F,
+              data = child_RSA_aff)
+summary(mod3b)
+summary(mod3c)
+
+anova(mod3b, mod3c) #mod3c is best
+```
+
+```{r}
+#plotting the interactions for 2c and 3c (NA and PA)
+titlemod = "Moderator: Prop. Child Negative Affect"
+m.2b.plot <- plotCurves(mod2b, modx = "Child_NA_prop_gmc", plotx = "time", n=3, plotPoints=F, modxVals="std.dev", ylim = c(5.5,7), legendTitle = titlemod)
+graph_model(mod2c, y=value, x=time, lines=Child_NA_prop_gmc)
+
+titlemod = "Moderator: Prop. Child Positive Affect"
+m.2c.plot <- plotCurves(mod3b, modx = "Child_PA_prop_gmc", plotx = "time", n=3, plotPoints=F, modxVals="std.dev", ylim = c(5.75,6.5), legendTitle = titlemod)
+graph_model(mod3c, y=value, x=time, lines=Child_PA_prop_gmc)
+```
